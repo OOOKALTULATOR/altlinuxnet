@@ -1,0 +1,199 @@
+В VMware нажимаем edit и в Virtual Network Editor запоминаем/добавляем два интерфейса с айпи адресами 172.16.10.0 и 192.168.100.0. Убираем везде галочки. 
+На RTR создаем 3 интерфейса. Один мост, для доступа в интернет. Два других с нашими интерфейсами.
+
+На rtr пишем:
+hostnamectl set-hostname rtr.exam.oaks
+vim /etc/sysconfig/network
+В строчке HOSTNAME пишем rtr.exam.oaks
+exec bash
+Проверяем командой 
+hostname -f
+vim /etc/net/sysctl.conf
+
+Меняем строчку:
+net.ipv4.ip_forward = 0
+На:
+net.ipv4.ip_forward = 1
+
+Заходим в каталог  /etc/net/ifaces/
+Смотрим наши интерфейса командой ip -c a
+Копируем каталог ens33
+cp -r ens3{3,4}
+cp -r ens3{3,7}
+Проверяем:
+ls
+Должны появиться каталоги ens34, ens37
+vim ens33/options
+Меняем BOOTPROTO, вместе static пишем dhcp
+echo "172.16.10.1/24" > ens34/ipv4address
+echo "192.168.100.1/24" > ens37/ipv4address
+systemctl restart network
+
+Смотрим айпи на адресах. 
+ip -c -br -4 a 
+Все должно быть ок.
+
+iptables -X
+iptables -F
+iptables -t nat -X
+iptables -t nat -F
+iptables -t mangle -X
+iptables -t mangle -F
+iptables -t nat -A POSTROUTING -o ens33 -s 172.16.10.0/24 -j MASQUERADE
+iptables -t nat -A POSTROUTING -o ens33 -s 192.168.100.0/24 -j MASQUERADE
+iptables-save
+iptables-save > /etc/sysconfig/iptables
+apt-get update && apt-get install rsyslog dhcp-server -y
+vim /etc/dhcp/dhcpd.conf
+
+Пишем:
+
+subnet 172.16.10.0 netmask 255.255.255.0 {
+      range 172.16.10.2 172.16.10.254;
+      option routers 172.16.10.1;
+      option domain-name-servers 77.88.8.8, 172.16.10.2, 192.168.100.2;
+      option domain-name "exam.oaks";
+      option broadcast-address 172.16.10.255;
+      default-lease-time 600;
+      max-lease-time 7200;
+}
+subnet 192.168.100.0 netmask 255.255.255.0 {
+      range 192.168.100.2 192.168.100.254;
+      option routers 192.168.100.1;
+      option domain-name-servers 77.88.8.8, 192.168.100.2, 172.16.10.2;
+      option domain-name "exam.oaks";
+      option broadcast-address 192.168.100.255;
+      default-lease-time 600;
+      max-lease-time 7200;
+}
+host srv-1 {
+      hardware ehernet MAC_ADDRESS;
+      fixed-address 172.16.10.2;
+}
+host srv-2 {
+      hardware ethernet MAC_ADDRESS;
+      fixed-address;
+}
+
+Все. 
+
+systemctl enable dhcpd --now
+systemctl status dhcpd
+
+
+Настройка на SRV-1
+Выбираем интерфейс под айпи 172.16.10.0
+hostnamectl set-hostname srv-1.exam.oaks
+vim /etc/sysconfig/network
+Меняем:
+HOSTNAME = srv-1.exam.oaks
+exec bash
+vim /etc/net/ifaces/ens33/options
+Меняем BOOTPROTO = dhcp
+systemctl restart network
+Проверяем айпи ip -c -br -4 a
+
+
+
+Настройка на SRV-2
+Интерфейс под 192.168.100.0
+hostnamectl set-hostname srv-2.exam.oaks
+vim /etc/sysconfig/network
+Меняем HOSTNAME = srv-2.exam.oaks
+exec bash
+vim /etc/net/ifaces/ens33/options
+Меняем BOOTPROTO = dhcp
+systemctl restart network
+Проверяем ip -c -br -4 a
+apt-get update && apt-get install rsyslog bind -y
+
+SRV-1:
+apt-get update && apt-get install rsyslog bind -y
+
+SRV-2
+vim/etc/bind/options.conf
+Меняем:
+listen-on { 127.0.0.1; 192.168.100.2; };
+listen-on-v6 { none; };
+forwarders { 77.88.8.8; 8.8.8.8; };
+allow-query { 192.168.100.0/24; 172.16.10.0/24; };
+allow-transfer { 172.16.10.2; };
+
+vim /etc/bind/local.conf
+Пишем:
+zone "exam.oaks" {
+      type master;
+      file "exam.oaks.db";
+};
+zone "10.16.172.in-addr.arpa" {
+      type master;
+      file "10.16.172.in-addr.arpa.db";
+};
+zone "100.168.192.in-addr.arpa" {
+      type master;
+      file "100.168.192.in-addr.arpa.db";
+};
+
+cd /etc/bind/zone
+ls
+cp localdomain exam.oaks.db
+cp 127.in-addr.arpa 10.16.172.in-addr.arpa
+vim exam.oaks.db
+Пишем это https://sun9-13.userapi.com/impg/NUbAfv1CY-70FeIbzc3YC7t5TCReN27YcKS0Lg/1TZGnxlbGW8.jpg?size=610x344&quality=96&sign=166e927b320a961ca7134d9f1fb19d47&type=album
+vim 10.16.172.in-addr.arpa
+Пишем это https://sun9-32.userapi.com/impg/EQxOwZf9AcmZJ3UZ5bKeZYItHrgzoIPRjxdm3Q/WXtTx14S4aI.jpg?size=498x206&quality=96&sign=fac97640fb441b811383e86a2b0a38e1&type=album
+cp 10.16.172.in-addr.arpa 100.168.192.in-addr.arpa
+vim 100.168.192.in-addr.arpa
+Пишем это https://sun9-69.userapi.com/impg/zGSy6z5L9f3N-VaUCVEGDBb8XA6GX_P4mvYhaQ/ENkZmGBxeG8.jpg?size=705x302&quality=96&sign=94ff505a90cb08f76175cedcb028de56&type=album
+chown root:named 10.16.172.in-addr.arpa 100.168.192.in-addr.arpa exam.oaks.db
+mv 10.16.172.in-addr.arpa 10.16.172.in-addr.arpa.db
+mv 100.168.192.in-addr.arpa 100.168.192.in-addr.arpa.db
+systemctl enable bind.service
+
+Заходим в RTR
+vim /etc/dhcp/dhcpd.conf 
+Удаляем везде 77.88.8.8
+systemctl restart dhcpd
+
+SRV2:
+systemctl restart network
+
+SRV1:
+systemctl restart network
+
+SRV2: 
+systemctl restart network
+systemctl restart bind
+
+Для проверки пинганем zabbix.exam.oaks и rtr.exam.oaks
+
+SRV1:
+vim /etc/bind/options.conf
+Меняем 
+listen-on { 127.0.0.1; 172.16.10.2; };
+listen-on-v6 { none; };
+forwarders { 77.88.8.8; 8.8.8.8; };
+allow-query { 172.16.10.0/24; 192.168.100.0/24; };
+allow-transfer { none; };
+
+vim /etc/bind/local.conf
+zone "exam.oaks" {
+      type slave;
+      file "slave/exam.oaks.db";
+      masters { 192.168.100.2; };
+};
+zone "10.16.172.in-addr.arpa" {
+      type slave;
+      file "slave/10.16.172.in-addr.arpa.db";
+      masters { 192.168.100.2; };
+};
+zone "100.168.192.in-addr.arpa" {
+      type slave:
+      file "slave/100.168.192.in-addr.arpa.db";
+      masters { 192.168.100.2; );
+};
+
+
+control bind-slave enabled
+systemctl enable bind.service
+Для проверки пингуем zabbix.exam.oaks
