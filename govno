@@ -72,7 +72,7 @@ host srv-1 {
 }
 host srv-2 {
       hardware ethernet MAC_ADDRESS;
-      fixed-address;
+      fixed-address 192.168.100.2;
 }
 
 Все. 
